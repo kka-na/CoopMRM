@@ -1,0 +1,29 @@
+GenticMRMMessage{
+    uint32 sender_id
+    uint64 timestamp  
+    uint8 message_type      # 0=REQUEST, 1=RESPONSE
+    uint8 generation_level  # 0,1,2,3...
+    
+    # 경로 데이터 (압축)
+    float32[10] waypoints_x    # 최대 5개 waypoint의 x좌표
+    float32[10] waypoints_y    # 최대 5개 waypoint의 y좌표
+    uint8 trust_score         # 0-255
+}
+
+CoopData{
+    Header header
+    
+    # Vehicle Info
+    string vehicle_id
+    geometry_msgs/Pose pose
+    uint8 generation_level
+    bool is_fallback
+    
+    # Path Info  
+    geometry_msgs/Point[] waypoints
+    uint8 trust_score
+    
+    # Control/Status
+    uint8 phase            # PROPAGATE, REFINE, FUSE
+    uint8 message_type     # REQUEST, RESPONSE, UPDATE
+}
