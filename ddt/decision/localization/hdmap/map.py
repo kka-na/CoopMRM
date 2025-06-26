@@ -19,8 +19,8 @@ class MAP:
         self.cut_dist = cut_dist
         self.tile_size = tile_size
         
-        self.map_file = f'./hdmap/maps/{map_name}.json'
-        self.pickle_file = f'./hdmap/pkls/{map_name}.pkl'
+        self.map_file = f'./localization/hdmap/maps/{map_name}.json'
+        self.pickle_file = f'./localization/hdmap/pkls/{map_name}.pkl'
         
         self._load_or_create_map()
 

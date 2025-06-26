@@ -1,0 +1,9 @@
+Midan:
+  1:
+    ego:
+      ego: [10, 20, 0.581, 0]  # x, y, yaw
+      ego_vehicle_type: "bmw_320i"  # 선택사항
+    targets:
+      # 리스트 형태
+      - [30, 20, 0.618, 0, "vw_vanagon"]  # x, y, yaw, v
+      - [50, 25, 0.536, 0, "ford_escort"]  # x, y, yaw, v, vehicle_type
