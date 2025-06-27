@@ -73,32 +73,43 @@ def lanelet_matching2(t_pt):
     else:
         return None
     
-def get_straight_path(idnidx, path_len):
-    s_n = idnidx[0]
-    s_i = idnidx[1]
-    wps = copy.deepcopy(lanelets[s_n]['waypoints'])
-    lls_len = len(wps)
-    ids = [s_n]*lls_len
-    u_n = s_n
-    u_i = s_i+int(path_len)#*M_TO_IDX)
-    e_i = lls_len-int(s_i)
-    wps = wps[s_i:u_i]
-    while u_i >= lls_len:
+def get_straight_path(start_idnidx, desired_length):
+    """현재 위치에서 desired_length만큼의 직진 경로 생성"""
+    
+    path = []
+    remaining_length = desired_length
+    current_lanelet_id = start_idnidx[0]
+    current_idx = start_idnidx[1]
+    
+    while remaining_length > 0:
+        # 현재 lanelet의 waypoints
+        current_waypoints = lanelets[current_lanelet_id]['waypoints']
         
-        _u_n = get_possible_successor(u_n)
-        if _u_n == None:
-            e_i = len(wps)
-            break
-        u_n = _u_n
-        u_i -= lls_len
-        e_i += u_i
-        u_wp = lanelets[u_n]['waypoints']
-        lls_len = len(u_wp)
-        ids.extend([u_n]*lls_len)
-        wps += u_wp
-
-    r = wps[:e_i]
-    return r, [u_n, u_i]
+        # 현재 lanelet에서 사용할 수 있는 waypoints
+        available_points = current_waypoints[current_idx:]
+        points_to_use = min(len(available_points), remaining_length)
+        
+        # 경로에 추가
+        path.extend(available_points[:points_to_use])
+        remaining_length -= points_to_use
+        
+        # 아직 더 필요하면 다음 lanelet으로
+        if remaining_length > 0:
+            successor = get_possible_successor(current_lanelet_id)
+            if successor is None:
+                # 더 이상 successor 없음
+                final_idx = len(current_waypoints) - 1
+                break
+            current_lanelet_id = successor
+            current_idx = 0
+        else:
+            # 정확히 끝남
+            final_idx = current_idx + points_to_use - 1
+    
+    # 마지막 위치 정보
+    final_position = [current_lanelet_id, final_idx]
+    
+    return path, final_position
 
 def get_cut_idx_ids(id):
     idx_list = lanelets[id]['cut_idx']

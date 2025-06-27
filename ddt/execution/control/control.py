@@ -41,22 +41,22 @@ class Control():
         self.current_heading = 0.0
         self.local_path = []
         
-    def update_value(self, max_velocity, car, path):
+    def update_value(self, max_velocity, _car):
         """외부에서 받은 정보로 제어 변수 업데이트"""
         self.max_velocity = max_velocity
-        self.state = car['state']
-        self.current_location = Point(x=car['x'], y=car['y'])
-        self.current_velocity = car['v']
-        self.current_heading = car['t']
+        self.state = _car['state']
+        self.current_location = Point(x=_car['x'], y=_car['y'])
+        self.current_velocity = _car['v']
+        self.current_heading = _car['t']
         
         # 경로 데이터 변환
         self.local_path = []
-        if path is not None:
-            for point in path:
+        if _car['path'] is not None:
+            for point in _car['path']:
                 self.local_path.append(Point(x=point[0], y=point[1]))
         
         # 경로 길이 기반 목표 속도 계산
-        path_length = len(path) if path is not None else 0
+        path_length = len(_car['path']) if _car['path'] is not None else 0
         self.target_velocity = self._calculate_target_velocity(path_length)
             
     def _calculate_target_velocity(self, path_length):

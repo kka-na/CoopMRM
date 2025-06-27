@@ -13,16 +13,13 @@ def signal_handler(sig, frame):
     sys.exit(0)
 
 class Transmitter():
-    def __init__(self, type, car, map):
-        self.set_values(type, car, map)
-    
-    def set_values(self, type, car, map):
+    def __init__(self, type, car, map, x=None, y=None, yaw=None, v=None, model=None):
         if car == 'simulator':
-            self.target = Simulator(type, map, 1)
+            self.target = Simulator(type, map, 1, x,y,yaw,v,model)
         elif car == 'avante':
             self.target = Avante()
         elif car == 'ioniq5':
-            self.target = IONIQ5()
+            self.target = IONIQ5()        
 
     async def transmitter(self):
         while not rospy.is_shutdown():

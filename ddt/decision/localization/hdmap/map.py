@@ -2,7 +2,7 @@ import json
 import pickle
 import os
 from .map_core import LaneletMap, TileMap, MicroLaneletGraph
-from .map_viz import MapVisualizer
+from .map_viz import MapViz
 
 
 class MAP:
@@ -41,7 +41,6 @@ class MAP:
             self.lanelets = data['lanelets']
             self.tiles = data['tiles']
             self.lmap_viz = data['lmap_viz']
-            self.mlmap_viz = data['mlmap_viz']
 
     def _create_and_cache_map(self):
         """맵 데이터를 새로 생성하고 캐시에 저장"""
@@ -64,9 +63,10 @@ class MAP:
         self.tiles = tmap.tiles
         
         # 시각화 데이터 생성
-        self.lmap_viz = MapVisualizer.create_lanelet_viz(self.lanelets, self.lmap.for_viz)
-        self.mlmap_viz = MapVisualizer.create_micro_graph_viz(self.lanelets, self.graph)
-        
+        viz = MapViz()
+        self.lmap_viz = viz.create_combined_pointcloud(self.lanelets)
+
+
         # 캐시에 저장
         self._save_to_cache()
 
@@ -80,8 +80,7 @@ class MAP:
             'graph': self.graph,
             'lanelets': self.lanelets,
             'tiles': self.tiles,
-            'lmap_viz': self.lmap_viz,
-            'mlmap_viz': self.mlmap_viz
+            'lmap_viz': self.lmap_viz
         }
         
         with open(self.pickle_file, 'wb') as file:
@@ -90,10 +89,6 @@ class MAP:
     def get_lanelet_viz(self):
         """Lanelet 시각화 마커 배열 반환"""
         return self.lmap_viz
-
-    def get_micro_graph_viz(self):
-        """Micro lanelet 그래프 시각화 마커 배열 반환"""
-        return self.mlmap_viz
 
     def get_tile(self, x, y):
         """주어진 좌표에 해당하는 타일 반환"""

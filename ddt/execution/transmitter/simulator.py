@@ -139,9 +139,7 @@ class CommonRoadVehicle:
 
 
 class Simulator:
-    def __init__(self, type, map, scenario):
-        self.ego = None
-        self.targets = []  # 여러 대의 타겟 차량
+    def __init__(self, type, map, scenario, x=0, y=0, yaw=0, v=0, vehicle_type='ford_escort'):
         self.type = type
         self.map = map
         self.scenario = scenario
@@ -154,7 +152,8 @@ class Simulator:
         if not self.use_commonroad:
             print("⚠️ CommonRoad 사용 불가")
 
-        self.set_ego()
+        # 외부에서 전달받은 파라미터로 차량 생성
+        self.vehicle = self.create_vehicle(x, y, yaw, v, vehicle_type)
         self.set_protocol(type)
     
     def create_vehicle(self, x, y, yaw, v=0, vehicle_type='ford_escort'):
@@ -168,12 +167,7 @@ class Simulator:
     
     def set_protocol(self, type):
         rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, self.init_pose_cb)
-        self.ego_pub = rospy.Publisher(f'/{type}/pose', PoseStamped, queue_size=1)
-        # 타겟 차량 정보 퍼블리셔 추가
-        self.targets_pubs = []
-        for i, target in enumerate(self.targets):
-            pub = rospy.Publisher(f"/target{i+1}/pose", PoseStamped, queue_size=1)
-            self.targets_pubs.append(pub)
+        self.vehicle_pub = rospy.Publisher(f'/{type}/pose', PoseStamped, queue_size=1)
 
     def init_pose_cb(self, msg):
         x = msg.pose.pose.position.x
@@ -181,7 +175,8 @@ class Simulator:
         orientation = msg.pose.pose.orientation
         quaternion = (orientation.x, orientation.y, orientation.z, orientation.w)
         _, _, yaw = tf.transformations.euler_from_quaternion(quaternion)
-        self.ego.set(x, y, yaw)
+        if self.vehicle:
+            self.vehicle.set(x, y, yaw)
 
     def set_actuator(self, msg):
         self.actuator['steer'] = math.radians(msg[1])
@@ -200,60 +195,23 @@ class Simulator:
         scenario_type = int(msg['scenario_type'])
         if scenario_type == 2:
             scenario = scenario + 6
+        # 시나리오가 변경되면 상태만 업데이트 (차량 재생성은 외부에서 처리)
         if self.scenario != scenario:
             self.scenario = scenario
-            self.set_ego() 
+            print(f"시나리오 변경: {self.scenario}")
 
-    def set_ego(self):
-        """ego 및 타겟 차량들 초기화"""
-        with open("./transmitter/config/setting.yaml", "r") as f:
-            config = yaml.safe_load(f)
-        
-        map_config = config.get(self.map, {})
-        scenario_data = map_config.get(self.scenario, map_config.get("default", {}))
-        type_data = scenario_data.get(self.type, {})
-        
-        # Ego 차량 설정
-        ego_pose = type_data.get("ego", [0, 0, 0])
-        ego_vehicle_type = type_data.get("ego_vehicle_type", "ford_escort")
-        self.ego = self.create_vehicle(*ego_pose, vehicle_type=ego_vehicle_type)
-        
-        # 타겟 차량들 설정
-        targets_data = scenario_data.get("targets", [])
-        # targets가 리스트 형태인 경우
-        for i, target_pose in enumerate(targets_data):
-            x, y, yaw = target_pose[:3]
-            v = target_pose[3] if len(target_pose) > 3 else 0
-            vehicle_type = target_pose[4] if len(target_pose) > 4 else "ford_escort"
-            target = self.create_vehicle(x, y, yaw, v, vehicle_type)
-            self.targets.append(target)
-        
+    def reset_vehicle(self, x, y, yaw, v=0, vehicle_type='ford_escort'):
+        """외부에서 차량을 재설정할 때 사용"""
+        self.vehicle = self.create_vehicle(x, y, yaw, v, vehicle_type)
 
     async def execute(self):
-        dt = 0.05
+        dt = 0.02
         
-        # Ego 차량 업데이트
-        self.car['x'], self.car['y'], yaw, self.car['v'] = self.ego.next_state(dt, self.actuator)
-        msg = self.make_posestamped_msg(self.ego)
-        self.ego_pub.publish(msg)
-
-        # 타겟 차량들 업데이트 (간단한 자율 주행 로직 예시)
-        for i, target in enumerate(self.targets):
-            # 타겟 차량은 일정 속도로 직진하거나 간단한 경로를 따라감
-            target_actuator = {
-                'steer': 0,  # 직진
-                'accel': 0 if target.v < 10 else 0,  # 목표 속도 10m/s
-                'brake': 0
-            }
-            target.next_state(dt, target_actuator)
-        
-        # 타겟 차량 정보 퍼블리시 (필요시)
-        self.publish_targets_info()
-    
-    def publish_targets_info(self):
-        for i, target in enumerate(self.targets):
-            msg = self.make_posestamped_msg(target)
-            self.targets_pubs[i].publish(msg)
+        if self.vehicle:
+            # 차량 업데이트
+            self.car['x'], self.car['y'], yaw, self.car['v'] = self.vehicle.next_state(dt, self.actuator)
+            msg = self.make_posestamped_msg(self.vehicle)
+            self.vehicle_pub.publish(msg)
 
     def make_posestamped_msg(self, vehicle):
         msg = PoseStamped()

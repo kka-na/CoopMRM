@@ -1,244 +1,103 @@
-import numpy as np
+#!/usr/bin/env python3
+"""
+Waypoints + Boundary를 하나의 PointCloud2로 색상 구분 시각화
+노란색: waypoints, 회색: boundary
+"""
+
 import rospy
-from geometry_msgs.msg import Point
-from visualization_msgs.msg import Marker, MarkerArray
-from .map_core import QuadraticSplineInterpolate
+from sensor_msgs.msg import PointCloud2, PointField
+from std_msgs.msg import Header
+import struct
 
-
-class MapVisualizer:
-    """맵 시각화를 위한 유틸리티 클래스"""
+class MapViz:
+    """Waypoints와 Boundary를 하나의 PointCloud로 시각화"""
     
-    @staticmethod
-    def create_lanelet_viz(lanelets, for_viz):
-        """Lanelet 맵 시각화 마커 배열 생성"""
-        array = MarkerArray()
+    def __init__(self):
+        self.frame_id = 'map'
         
-        # Lanelet bounds 시각화
-        for id_, data in lanelets.items():
-            # Left bounds
-            for n, (left_bound, left_type) in enumerate(zip(data['leftBound'], data['leftType'])):
-                marker = MapVisualizer._create_bound_marker(
-                    'leftBound', id_, n, left_bound, left_type, (1.0, 1.0, 1.0, 1.0)
-                )
-                array.markers.append(marker)
+        
+        # 색상 정의 (RGB)
+        self.waypoint_color = [255, 255, 0]    # 노란색
+        self.boundary_color = [128, 128, 128]  # 회색
+        
+    def create_combined_pointcloud(self, lanelets, waypoint_subsample=3, boundary_subsample=2):
+        """
+        Waypoints와 Boundary를 하나의 PointCloud2로 생성
+        
+        Args:
+            lanelets: lanelet 데이터
+            waypoint_subsample: waypoint 간격 (3 = 3개마다 1개)
+            boundary_subsample: boundary 간격 (2 = 2개마다 1개)
+        """
+        points = []
+        colors = []
+
+        waypoint_count = 0
+        boundary_count = 0
+        
+        for lanelet_id, data in lanelets.items():
+            # 1. Waypoints 추가 (노란색)
+            if 'waypoints' in data:
+                waypoints = data['waypoints'][::waypoint_subsample]  # 서브샘플링
+                for wp in waypoints:
+                    points.append([wp[0], wp[1], 0.5])  # 살짝 높게 (0.5m)
+                    colors.append(self.waypoint_color)
+                    waypoint_count += 1
             
-            # Right bounds
-            for n, (right_bound, right_type) in enumerate(zip(data['rightBound'], data['rightType'])):
-                marker = MapVisualizer._create_bound_marker(
-                    'rightBound', id_, n, right_bound, right_type, (1.0, 1.0, 1.0, 1.0)
-                )
-                array.markers.append(marker)
-        
-        # 추가 시각화 요소들 (stop_line 등)
-        for n, (points, type_) in enumerate(for_viz):
-            color = (1.0, 1.0, 1.0, 1.0)
-            line_type = 'solid' if type_ == 'stop_line' else type_
-            marker = MapVisualizer._create_bound_marker(
-                'for_viz', n, n, points, line_type, color
-            )
-            array.markers.append(marker)
-        
-        return array
-
-    @staticmethod
-    def create_micro_graph_viz(lanelets, graph):
-        """Micro Lanelet 그래프 시각화 마커 배열 생성"""
-        array = MarkerArray()
-        
-        for n, (node_id, edges) in enumerate(graph.items()):
-            # 노드 시각화
-            node_marker = MapVisualizer._create_node_marker(node_id, n, lanelets)
-            array.markers.append(node_marker)
+            # 2. Left Boundary 추가 (회색)
+            if 'leftBound' in data and data['leftBound']:
+                for bound_segment in data['leftBound']:
+                    boundary_points = bound_segment[::boundary_subsample]  # 서브샘플링
+                    for bp in boundary_points:
+                        points.append([bp[0], bp[1], 0.0])  # 지면 레벨
+                        colors.append(self.boundary_color)
+                        boundary_count += 1
             
-            # 엣지 시각화
-            for m, target_node_id in enumerate(edges.keys()):
-                edge_markers = MapVisualizer._create_edge_markers(
-                    node_id, target_node_id, n, m, lanelets
-                )
-                array.markers.extend(edge_markers)
+            # 3. Right Boundary 추가 (회색)
+            if 'rightBound' in data and data['rightBound']:
+                for bound_segment in data['rightBound']:
+                    boundary_points = bound_segment[::boundary_subsample]  # 서브샘플링
+                    for bp in boundary_points:
+                        points.append([bp[0], bp[1], 0.0])  # 지면 레벨
+                        colors.append(self.boundary_color)
+                        boundary_count += 1
         
-        return array
-
-    @staticmethod
-    def _create_node_marker(node_id, n, lanelets):
-        """노드 마커 생성"""
-        parts = node_id.split('_')
-        
-        if len(parts) == 1:
-            id_ = parts[0]
-            idx = lanelets[id_]['idx_num'] // 2
-        else:
-            id_ = parts[0]
-            cut_n = int(parts[1])
-            idx = sum(lanelets[id_]['cut_idx'][cut_n]) // 2
-        
-        pt = lanelets[id_]['waypoints'][idx]
-        return MarkerFactory.create_text_marker(
-            'graph_id', n, 1.5, (1.0, 1.0, 1.0, 1.0), node_id, pt
-        )
-
-    @staticmethod
-    def _create_edge_markers(from_node, to_node, n, m, lanelets):
-        """엣지 마커들 생성 (라인 + 화살표)"""
-        from_parts = from_node.split('_')
-        to_parts = to_node.split('_')
-        
-        # 시작점 계산
-        if len(from_parts) == 1:
-            from_id = from_parts[0]
-            from_idx = lanelets[from_id]['idx_num'] // 2
-        else:
-            from_id = from_parts[0]
-            cut_n = int(from_parts[1])
-            from_idx = sum(lanelets[from_id]['cut_idx'][cut_n]) // 2
-        
-        from_pts = lanelets[from_id]['waypoints']
-        
-        # 끝점 계산
-        if len(to_parts) == 1:
-            to_id = to_parts[0]
-            to_idx = lanelets[to_id]['idx_num'] // 2
-            to_pts = lanelets[to_id]['waypoints']
-            
-            if from_id == to_id:  # 같은 lanelet 내에서의 연결
-                pts = [from_pts[from_idx], to_pts[to_idx]]
-            else:
-                pts = from_pts[from_idx:] + to_pts[:to_idx]
-        else:
-            to_id = to_parts[0]
-            cut_n = int(to_parts[1])
-            to_idx = sum(lanelets[to_id]['cut_idx'][cut_n]) // 2
-            to_pts = lanelets[to_id]['waypoints']
-            
-            if from_id == to_id:  # 같은 lanelet 내에서의 연결
-                pts = [from_pts[from_idx], to_pts[to_idx]]
-            else:
-                pts = from_pts[from_idx:] + to_pts[:to_idx]
-        
-        # 색상 결정 (같은 lanelet 내부 연결인지 여부에 따라)
-        alpha = 0.3 if from_id == to_id else 0.5
-        color = (0.0, 1.0, 0.0, alpha)
-        
-        return MapVisualizer._create_edge_line_and_arrow(n * 100000 + m, pts, color)
-
-    @staticmethod
-    def _create_edge_line_and_arrow(marker_id, points, color):
-        """엣지의 라인과 화살표 마커 생성"""
-        # 2점만 있는 경우 스플라인 보간으로 부드러운 곡선 생성
-        if len(points) == 2:
-            wx, wy = zip(*points)
-            itp = QuadraticSplineInterpolate(list(wx), list(wy))
-            pts = []
-            for ds in np.arange(0.0, itp.s[-1], 0.5):
-                pts.append(itp.calc_position(ds))
-            points = pts
-        
-        # 라인 마커
-        line_marker = MarkerFactory.create_line_marker(
-            'edge_line', marker_id, 0.2, color, points
-        )
-        
-        # 화살표 마커
-        arrow_marker = MarkerFactory.create_arrow_marker(
-            'edge_arrow', marker_id, (0.3, 0.8, 1.0), color, points
-        )
-        
-        return [line_marker, arrow_marker]
-
-    @staticmethod
-    def _create_bound_marker(ns, id_, n, points, line_type, color):
-        """경계선 마커 생성"""
-        if line_type == 'solid':
-            marker = MarkerFactory.create_line_marker(f'{ns}_{id_}', n, 0.15, color, points)
-        elif line_type == 'dotted':
-            marker = MarkerFactory.create_points_marker(f'{ns}_{id_}', n, 0.15, color, points)
-        else:
-            marker = MarkerFactory.create_line_marker(f'{ns}_{id_}', n, 0.15, color, points)
-        
-        return marker
-
-
-class MarkerFactory:
-    """ROS 시각화 마커 생성을 위한 팩토리 클래스"""
+        return self._create_pointcloud2(points, colors)
     
-    @staticmethod
-    def create_points_marker(ns, id_, scale, color, points=None):
-        """점 마커 생성"""
-        marker = Marker()
-        marker.type = Marker.POINTS
-        marker.action = Marker.ADD
-        marker.header.frame_id = 'world'
-        marker.ns = ns
-        marker.id = id_
-        marker.lifetime = rospy.Duration(0)
-        marker.scale.x = scale
-        marker.scale.y = scale
-        marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
+    def _create_pointcloud2(self, points, colors):
+        """PointCloud2 메시지 생성"""
+        header = Header()
+        header.frame_id = self.frame_id
+        header.stamp = rospy.Time.now()
         
-        if points:
-            for pt in points:
-                marker.points.append(Point(x=pt[0], y=pt[1], z=0.0))
+        # 필드 정의 (XYZ + RGB)
+        fields = [
+            PointField('x', 0, PointField.FLOAT32, 1),
+            PointField('y', 4, PointField.FLOAT32, 1),
+            PointField('z', 8, PointField.FLOAT32, 1),
+            PointField('rgb', 12, PointField.UINT32, 1),
+        ]
         
-        return marker
-
-    @staticmethod
-    def create_line_marker(ns, id_, scale, color, points=None):
-        """라인 마커 생성"""
-        marker = Marker()
-        marker.type = Marker.LINE_STRIP
-        marker.action = Marker.ADD
-        marker.header.frame_id = 'world'
-        marker.ns = ns
-        marker.id = id_
-        marker.lifetime = rospy.Duration(0)
-        marker.scale.x = scale
-        marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
-        marker.pose.orientation.w = 1.0
+        # 데이터 패킹
+        cloud_data = []
+        for point, color in zip(points, colors):
+            # RGB를 uint32로 패킹
+            r, g, b = color
+            rgb = (r << 16) | (g << 8) | b
+            
+            # 바이너리 데이터로 패킹
+            cloud_data.append(struct.pack('fffI', point[0], point[1], point[2], rgb))
         
-        if points:
-            for pt in points:
-                marker.points.append(Point(x=pt[0], y=pt[1], z=0.0))
+        # PointCloud2 메시지 생성
+        pc2 = PointCloud2()
+        pc2.header = header
+        pc2.height = 1
+        pc2.width = len(points)
+        pc2.fields = fields
+        pc2.is_bigendian = False
+        pc2.point_step = 16  # 4 bytes * 4 fields
+        pc2.row_step = pc2.point_step * len(points)
+        pc2.data = b''.join(cloud_data)
+        pc2.is_dense = True
         
-        return marker
-
-    @staticmethod
-    def create_text_marker(ns, id_, scale, color, text, position):
-        """텍스트 마커 생성"""
-        marker = Marker()
-        marker.type = Marker.TEXT_VIEW_FACING
-        marker.action = Marker.ADD
-        marker.header.frame_id = 'world'
-        marker.ns = ns
-        marker.id = id_
-        marker.lifetime = rospy.Duration(0)
-        marker.text = text
-        marker.scale.z = scale
-        marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
-        marker.pose.position = Point(x=position[0], y=position[1], z=1.0)
-        marker.pose.orientation.w = 1.0
-        return marker
-
-    @staticmethod
-    def create_arrow_marker(ns, id_, scale, color, points):
-        """화살표 마커 생성"""
-        marker = Marker()
-        marker.type = Marker.ARROW
-        marker.action = Marker.ADD
-        marker.header.frame_id = 'world'
-        marker.ns = ns
-        marker.id = id_
-        marker.lifetime = rospy.Duration(0)
-        marker.scale.x, marker.scale.y, marker.scale.z = scale
-        marker.color.r, marker.color.g, marker.color.b, marker.color.a = color
-        marker.pose.orientation.w = 1.0
-        
-        # 화살표 방향 설정 (끝점 방향)
-        num = len(points)
-        if num > 2:
-            start_idx = -min(max(num, 3), 5)
-            marker.points.append(Point(x=points[start_idx][0], y=points[start_idx][1]))
-        else:
-            marker.points.append(Point(x=points[-2][0], y=points[-2][1]))
-        marker.points.append(Point(x=points[-1][0], y=points[-1][1]))
-        
-        return marker
+        return pc2

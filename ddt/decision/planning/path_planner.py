@@ -1,22 +1,18 @@
 #!/usr/bin/env python3
 import rospy
-from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
-import numpy as np
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from localization.hdmap.map import MAP
 import planning.libs.planning_helper as phelper
 
-class StraightPathTest:
-    def __init__(self, map_name):
-        rospy.init_node('straight_path_test')
-        
-        # Initialize map
-        self.map = MAP(map_name)
+class PathPlanner:
+    def __init__(self, map):
+        self.map = map
+        self.set_values()
+    
+    def set_values(self):
         phelper.lanelets = self.map.lanelets
         phelper.tiles = self.map.tiles
         phelper.tile_size = self.map.tile_size
@@ -26,23 +22,10 @@ class StraightPathTest:
         
         # Current position
         self.current_pose = None
+    
+    def update_value(self, _current_pose):
+        self.current_pose = _current_pose
         
-        # Publishers
-        self.path_pub = rospy.Publisher('/ego/straight_path', Path, queue_size=1)
-        # Subscriber
-        rospy.Subscriber('/ego/pose', PoseStamped, self.pose_callback)
-        
-        rospy.loginfo("Straight path test node initialized")
-
-    def pose_callback(self, msg):
-        """Handle incoming pose messages"""
-        self.current_pose = [msg.pose.position.x, msg.pose.position.y]
-        
-        # Generate and publish path
-        path = self.generate_straight_path()
-        if path:
-            self.publish_path(path)
-
     def generate_straight_path(self):
         """Generate straight path from current position"""
         if self.current_pose is None:
@@ -64,34 +47,6 @@ class StraightPathTest:
         
         return path_waypoints
 
-    def publish_path(self, waypoints):
-        """Publish path for visualization in RViz"""
-        path_msg = Path()
-        path_msg.header.frame_id = "map"
-        path_msg.header.stamp = rospy.Time.now()
-        
-        for wp in waypoints:
-            pose = PoseStamped()
-            pose.header.frame_id = "map"
-            pose.header.stamp = rospy.Time.now()
-            pose.pose.position.x = wp[0]
-            pose.pose.position.y = wp[1]
-            pose.pose.position.z = 0.0
-            pose.pose.orientation.w = 1.0
-            path_msg.poses.append(pose)
-        
-        self.path_pub.publish(path_msg)
-        rospy.loginfo(f"Published path with {len(waypoints)} waypoints")
-
-def main():
-    # Map name - change this to your map
-    map_name = 'Midan'  # or whatever map you're using
-    
-    try:
-        test_node = StraightPathTest(map_name)
-        rospy.spin()
-    except rospy.ROSInterruptException:
-        pass
-
-if __name__ == "__main__":
-    main()
+    def execute(self):
+        path = self.generate_straight_path()
+        return path
