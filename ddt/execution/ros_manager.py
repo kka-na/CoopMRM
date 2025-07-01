@@ -42,7 +42,7 @@ class ROSManager:
             
     def pose_callback(self, msg, car_dict):
         """공통 pose 콜백 - car_dict에 따라 다른 객체 업데이트"""
-        car_dict['state'] = 1
+        car_dict['state'] = 0
         car_dict['x'] = msg.pose.position.x
         car_dict['y'] = msg.pose.position.y
         quaternion = (msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)

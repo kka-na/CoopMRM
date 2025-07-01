@@ -1,8 +1,12 @@
 Midan:
   1:
     ego:
-      pose: [10.886, 6.634, 0.534,0]        # ego -> pose로 변경
+      pose: [292.567, -364.852, 2.186,0]        # ego -> pose로 변경
       vehicle_type: "bmw_320i"        # ego_vehicle_type -> vehicle_type으로 변경
     targets:
-      - [30, 20, 0.618, 0, "vw_vanagon"]
-      - [50, 25, 0.536, 0, "ford_escort"]
+      - [274.828, -349.927,2.334, 0, "vw_vanagon"]
+      - [302.355, -369.058, 2.340, 0, "ford_escort"]
+      - [252.044, -323.627, 2.241, 0, "vw_vanagon"]
+      - [324.469, -394.664, 2.295, 0, "ford_escort"]
+      - [317.466, -382.320, 2.442, 0, "vw_vanagon"]
+      - [244.335, -319.974, 2.297, 0, "ford_escort"]
