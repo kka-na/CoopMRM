@@ -99,14 +99,6 @@ Visualization Manager:
       Topic: /ego/path
       Unreliable: false
       Value: true
-    - Class: rviz/Marker
-      Enabled: true
-      Marker Topic: /ego/look_a_head
-      Name: Marker
-      Namespaces:
-        lookahead: true
-      Queue Size: 100
-      Value: true
     - Alpha: 1
       Axes Length: 1
       Axes Radius: 0.10000000149011612
@@ -215,7 +207,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/ThirdPersonFollower
-      Distance: 306.6219177246094
+      Distance: 1253.72802734375
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -223,17 +215,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 203.29051208496094
-        Y: 106.68494415283203
-        Z: -0.00018657190958037972
+        X: 2162.526123046875
+        Y: -599.734130859375
+        Z: -0.0002524584124330431
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5697963237762451
+      Pitch: 1.4047964811325073
       Target Frame: <Fixed Frame>
-      Yaw: 3.6014013290405273
+      Yaw: 4.696360111236572
     Saved: ~
 Window Geometry:
   Displays:

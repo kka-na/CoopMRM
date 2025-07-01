@@ -43,7 +43,7 @@ class Decision():
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
-    if len(sys.argv) != 4 :
+    if len(sys.argv) != 3 :
         type = 'ego'
         map_name = 'Midan'
     else:
