@@ -15,22 +15,30 @@ class Decision():
         
         self.map = MAP(map_name)
         self.pp = PathPlanner(self.map)
-        self.RM = ROSManager(type,self.map)
-        self.set_values()
-    
-    def set_values(self):
-        pass
+        self.RM = ROSManager(type, self.map)
+        self.type = type
 
     def update_value(self):
-        self.pp.update_value(self.RM.current_pose)
+        # 모든 발견된 vehicle들에 대해 path planning 수행
+        for vehicle_id in self.RM.get_all_vehicles():
+            current_pose = self.RM.get_current_pose(vehicle_id)
+            if current_pose is not None:
+                self.pp.update_value(current_pose)
 
     def execute(self):
         rate = rospy.Rate(20)
         while not rospy.is_shutdown():
             self.update_value()
-            pp_result = self.pp.execute()
-            if pp_result is not None:
-                self.RM.publish_path(pp_result)
+            
+            # 모든 vehicle에 대해 path 계산 및 발행
+            for vehicle_id in self.RM.get_all_vehicles():
+                current_pose = self.RM.get_current_pose(vehicle_id)
+                if current_pose is not None:
+                    self.pp.update_value(current_pose)
+                    pp_result = self.pp.execute()
+                    if pp_result is not None:
+                        self.RM.publish_path(pp_result, vehicle_id)
+            
             rate.sleep()
 
 def main():

@@ -20,7 +20,7 @@ class MapViz:
         self.waypoint_color = [255, 255, 0]    # 노란색
         self.boundary_color = [128, 128, 128]  # 회색
         
-    def create_combined_pointcloud(self, lanelets, waypoint_subsample=3, boundary_subsample=2):
+    def create_combined_pointcloud(self, lanelets, waypoint_subsample=2, boundary_subsample=3):
         """
         Waypoints와 Boundary를 하나의 PointCloud2로 생성
         

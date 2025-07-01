@@ -1,20 +1,10 @@
 import numpy as np
 import math
 
-# 상수 정의
-MPS_TO_KPH = 3.6
-BASIC_STEERING_LIMIT_DEG = 15.0
-HIGH_SPEED_THRESHOLD_KPH = 30.0
-
-# 고속 보정 계수
-SPEED_OFFSET_GAIN = 0.02
-SPEED_OFFSET_BASE = 0.1
-SPEED_OFFSET_MIN = 1.0
-SPEED_OFFSET_MAX = 2.2
-
 class PurePursuit(object):
     def __init__(self, config):
         self.set_configs(config)
+        self.prev_steer = 0
 
     def set_configs(self, config):
         pp_config = config['PurePursuit']
@@ -22,116 +12,82 @@ class PurePursuit(object):
         self.min_lfd = float(pp_config['min_lfd'])
         self.max_lfd = float(pp_config['max_lfd'])
         self.lfd_offset = float(pp_config['lfd_offset'])
+        self.speed_threshold = float(pp_config['speed_threshold'])
+        self.speed_gain = float(pp_config['speed_gain'])
+        self.offset_base = float(pp_config['offset_base'])
+        self.offset_min = float(pp_config['offset_min'])
+        self.offset_max = float(pp_config['offset_max'])
         
-        common_config = config['Common']
-        self.wheelbase = float(common_config['wheelbase'])
-        self.steer_ratio = float(common_config['steer_ratio'])
-        self.steer_max = float(common_config['steer_max'])
+        cm_config = config['Common']
+        self.wheelbase = float(cm_config['wheelbase'])
+        self.steer_ratio = float(cm_config['steer_ratio'])
+        self.steer_max = float(cm_config['steer_max'])
+        self.saturation_th = float(cm_config['saturation_th'])
 
     def execute(self, current_location, state, local_path, current_heading, current_velocity):
-        """Pure Pursuit 알고리즘 실행"""
-        # 위치 정보가 없으면 조향각 0 반환
         if len(current_location) < 1:
             return 0, [current_location.x, current_location.y]
         
-        # 속도 기반 lookahead distance 계산
-        lookahead_distance = self._calculate_lookahead_distance(current_velocity)
-        
-        # 목표점 찾기
-        target_point = self._find_target_point(
-            current_location, local_path, current_heading, lookahead_distance
-        )
-        
-        if target_point is None:
-            return 0, [current_location.x, current_location.y]
-        
-        # 조향각 계산
-        steering_angle = self._calculate_steering_angle(
-            current_location, target_point, current_heading, lookahead_distance
-        )
-        
-        # 속도 기반 조향각 보정
-        corrected_steering = self._apply_speed_compensation(steering_angle, current_velocity)
-        
-        # 최종 조향 명령 생성
-        final_steer_command = self._convert_to_steer_command(corrected_steering)
-        
-        return final_steer_command, (target_point.x, target_point.y)
+        # Look-ahead distance 계산 (속도 기반, MPS 단위로 직접 계산)
+        lfd = self.lfd_gain * current_velocity + self.lfd_offset
+        lfd = np.clip(lfd, self.min_lfd, self.max_lfd)
 
-    def _calculate_lookahead_distance(self, current_velocity):
-        """속도에 기반한 lookahead distance 계산"""
-        velocity_kmh = current_velocity * MPS_TO_KPH
-        lfd = self.lfd_gain * velocity_kmh
-        return np.clip(lfd, self.min_lfd, self.max_lfd)
-
-    def _find_target_point(self, current_location, local_path, current_heading, lookahead_distance):
-        """lookahead distance 기반으로 목표점 찾기"""
-        heading_rad = math.radians(current_heading)
+        point = current_location
+        route = local_path
+        heading = math.radians(current_heading)
         
-        for path_point in local_path:
-            # 현재 위치에서 경로점까지의 벡터
-            diff_vector = path_point - current_location
-            
-            # 차량 좌표계로 변환 (heading 기준 회전)
-            rotated_diff = diff_vector.rotate(-heading_rad)
-            
-            # 전방에 있는 점만 고려
-            if rotated_diff.x > 0:
-                distance = rotated_diff.distance()
+        steering_angle = 0.
+        lh_point = point
+
+        # Pure Pursuit 알고리즘: 전방 탐색점 찾기
+        closest_forward_point = None
+        closest_distance = 0
+        
+        for i, path_point in enumerate(route):
+            diff = path_point - point
+            rotated_diff = diff.rotate(-heading)
+            if rotated_diff.x > 0:  # 전방 점만 고려
+                # 현재 차량 위치로부터의 실제 거리 계산
+                dis = np.linalg.norm(diff)  # 또는 path_point.distance(point)
                 
-                # lookahead distance 이상인 첫 번째 점을 목표점으로 선택
-                if distance >= lookahead_distance:
-                    return path_point
-        
-        # 조건에 맞는 점이 없으면 마지막 점 반환
-        return local_path[-1] if local_path else None
+                # LFD 이상의 점을 찾으면 즉시 선택
+                if dis >= lfd:
+                    theta = rotated_diff.angle
+                    steering_angle = np.arctan2(2 * self.wheelbase * np.sin(theta), lfd)
+                    lh_point = path_point
+                    break
+                # LFD 미만이지만 전방에서 가장 먼 점 기록
+                elif dis > closest_distance:
+                    closest_distance = dis
+                    closest_forward_point = path_point
+        else:
+            # LFD 이상의 점이 없다면 전방에서 가장 먼 점 사용
+            if closest_forward_point is not None:
+                diff = closest_forward_point - point
+                rotated_diff = diff.rotate(-heading)
+                theta = rotated_diff.angle
+                # 실제 거리를 사용하여 조향각 계산
+                actual_distance = np.linalg.norm(diff)
+                steering_angle = np.arctan2(2 * self.wheelbase * np.sin(theta), max(actual_distance, 1.0))
+                lh_point = closest_forward_point
 
-    def _calculate_steering_angle(self, current_location, target_point, current_heading, lookahead_distance):
-        """Pure Pursuit 기본 조향각 계산"""
-        heading_rad = math.radians(current_heading)
-        
-        # 목표점까지의 벡터
-        diff_vector = target_point - current_location
-        rotated_diff = diff_vector.rotate(-heading_rad)
-        
-        # Pure Pursuit 공식
-        theta = rotated_diff.angle
-        steering_angle_rad = np.arctan2(
-            2 * self.wheelbase * np.sin(theta), 
-            lookahead_distance * self.lfd_offset
-        )
-        
         # 라디안을 도(degree)로 변환
-        return math.degrees(steering_angle_rad)
-
-    def _apply_speed_compensation(self, steering_angle, current_velocity):
-        """속도에 따른 조향각 보정"""
-        # 기본 조향각 제한 적용
-        limited_steering = max(-BASIC_STEERING_LIMIT_DEG, 
-                              min(steering_angle, BASIC_STEERING_LIMIT_DEG))
+        steering_angle = math.degrees(steering_angle)
         
-        # 고속에서만 추가 보정 적용
-        velocity_kmh = current_velocity * MPS_TO_KPH
-        if velocity_kmh > HIGH_SPEED_THRESHOLD_KPH:
-            speed_compensation = self._calculate_speed_offset(velocity_kmh)
-            return limited_steering * speed_compensation
+        # 기본 조향각 제한 (설정값 사용)
+        steering_angle = np.clip(steering_angle, -self.steer_max, self.steer_max)
         
-        return limited_steering
-
-    def _calculate_speed_offset(self, velocity_kmh):
-        """고속 주행시 조향 보정 계수 계산"""
-        # 속도에 비례한 보정 계수 계산
-        # field test를 통해 튜닝된 파라미터들
-        speed_offset = velocity_kmh * SPEED_OFFSET_GAIN + SPEED_OFFSET_BASE
+        # 고속에서의 조향각 보정
+        current_speed_kph = current_velocity * 3.6  # MPS to KPH 변환을 한 번만
+        if current_speed_kph > self.speed_threshold:
+            steer_offset = np.clip(
+                current_speed_kph * self.speed_gain + self.offset_base,
+                self.offset_min,
+                self.offset_max
+            )
+            steering_angle = steering_angle * steer_offset
         
-        # 보정 계수 범위 제한
-        return min(max(speed_offset, SPEED_OFFSET_MIN), SPEED_OFFSET_MAX)
-
-    def _convert_to_steer_command(self, steering_angle_deg):
-        """조향각(degree)을 최종 조향 명령으로 변환"""
-        # 조향 기어비 적용
-        steer_command = steering_angle_deg * self.steer_ratio
+        # 최종 조향 명령 계산 (조향비 적용)
+        steer = np.clip(steering_angle * self.steer_ratio, -500, 500)
         
-        # 하드웨어 한계값으로 클리핑
-        return np.clip(steer_command, -self.steer_max * self.steer_ratio, 
-                      self.steer_max * self.steer_ratio)
+        return steer, (lh_point.x, lh_point.y)

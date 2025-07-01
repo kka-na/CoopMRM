@@ -2,6 +2,7 @@
 import rospy
 import copy
 import tf
+import math
 
 
 from geometry_msgs.msg import PoseStamped
@@ -37,16 +38,16 @@ class ROSManager:
                             lambda msg, idx=i: self.pose_callback(msg, self.targets[idx]))
             rospy.Subscriber(f'/target{i+1}/path', Path, 
                             lambda msg, idx=i: self.path_callback(msg, self.targets[idx]))
+        self.lh_test_pub = rospy.Publisher(f'/ego/look_a_head', Marker, queue_size=1)
             
-        self.lh_test_pub = rospy.Publisher(f'{self.type}/look_a_head', Marker, queue_size=1)
-
     def pose_callback(self, msg, car_dict):
         """공통 pose 콜백 - car_dict에 따라 다른 객체 업데이트"""
+        car_dict['state'] = 1
         car_dict['x'] = msg.pose.position.x
         car_dict['y'] = msg.pose.position.y
         quaternion = (msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w)
         _, _, yaw = tf.transformations.euler_from_quaternion(quaternion)
-        car_dict['t'] = yaw
+        car_dict['t'] = math.degrees(yaw)
 
     def path_callback(self, msg, car_dict):
         """공통 path 콜백"""
@@ -57,7 +58,7 @@ class ROSManager:
         marker = Marker()
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
-        marker.header.frame_id = 'world'
+        marker.header.frame_id = 'map'
         marker.ns = 'lookahead'
         marker.id = 1
         marker.lifetime = rospy.Duration(0)
@@ -77,4 +78,3 @@ class ROSManager:
         marker.pose.position.y = lh[1]
         marker.pose.position.z = 1.0
         self.lh_test_pub.publish(marker)
-

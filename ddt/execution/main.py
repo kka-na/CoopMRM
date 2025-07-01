@@ -47,19 +47,15 @@ class Execution():
             map_config = config.get(map, {})
             scenario_data = map_config.get(scenario, map_config.get("default", {}))
             vehicle_configs = []
-            
             # ego 차량 추가
             if type in scenario_data:
                 type_data = scenario_data[type]
-                ego_pose = type_data.get("ego", [0, 0, 0])  # ego 키 안의 ego 키
-                ego_vehicle_type = type_data.get("ego_vehicle_type", "ford_escort")
+                ego_pose = type_data.get("pose", [0, 0, 0, 0])  # ego 키 안의 ego 키
+                ego_vehicle_type = type_data.get("vehicle_type", "ford_escort")
                 
                 # 속도 정보 처리
-                if len(ego_pose) >= 4:
-                    x, y, yaw, v = ego_pose[:4]
-                else:
-                    x, y, yaw = ego_pose[:3]
-                    v = 0
+                x, y, yaw, v = ego_pose[:4]
+
                 
                 vehicle_configs.append({
                     'x': x,
@@ -107,30 +103,27 @@ class Execution():
     def update_values(self):
         self.ego = self.RM.ego
         self.targets = self.RM.targets
-        
         # 각 컨트롤러에 해당하는 차량 정보 업데이트
         for i, controller in enumerate(self.controllers):
             if i == 0:
                 # 첫 번째는 ego 차량
-                controller.update_value(self.RM.target_velocity, self.ego, self.targets)
+                controller.update_value(self.RM.target_velocity, self.ego)
             else:
                 # 나머지는 target 차량들
                 target_idx = i - 1
                 target = self.targets[target_idx] if target_idx < len(self.targets) else None
-                controller.update_value(self.RM.target_velocity, target, [])
+                controller.update_value(self.RM.target_velocity, target)
 
     async def control(self):
         while not rospy.is_shutdown():
             self.update_values()
-            
             # 각 차량별로 제어 실행
             for i, controller in enumerate(self.controllers):
                 actuator, lh = controller.execute()
-                #self.RM.pub_lh(lh)
-                
+                self.RM.pub_lh(lh)
                 # 해당 transmitter에 actuator 전달
                 self.transmitters[i].target.set_actuator(actuator)
-                self.transmitters[i].target.set_user_input(self.RM.user_input)
+                #self.transmitters[i].target.set_user_input(self.RM.user_input)
             
             await asyncio.sleep(0.1) #10hz             
 

@@ -33,7 +33,7 @@ class Control():
     
     def set_values(self):
         """제어 변수 초기화"""
-        self.max_velocity = 0.0
+        self.max_velocity = 50/3.6
         self.target_velocity = 0.0
         self.state = 0
         self.current_location = Point(x=0, y=0)
@@ -108,7 +108,6 @@ class Control():
             self.current_heading, 
             self.current_velocity
         )
-        
         return [acceleration_command, steering_command], lookahead_point
 
     def get_control_status(self):
