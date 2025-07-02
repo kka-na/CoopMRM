@@ -33,7 +33,7 @@ class APID:
 
     def execute(self, state, target_velocity, current_velocity):
         # 차량이 정지 상태면 급제동
-        if state < 1:
+        if state != 1:
             return -self.max_decel
                 
         # 현재 에러 계산 및 히스토리 업데이트

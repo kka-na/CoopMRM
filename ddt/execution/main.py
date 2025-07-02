@@ -16,7 +16,7 @@ class Execution():
         self.scenario = 1  # 기본 시나리오
         
         # YAML에서 차량 설정 로드
-        self.vehicle_configs = self.load_vehicle_configs(type, car, map, self.scenario)
+        self.vehicle_configs = self.load_vehicle_configs(type, map, self.scenario)
         # 각 차량별로 Control과 Transmitter 생성
         self.controllers = []
         self.transmitters = []
@@ -38,7 +38,7 @@ class Execution():
         self.RM = ROSManager(type, len(self.vehicle_configs))
         self.set_values()
     
-    def load_vehicle_configs(self, type, car, map, scenario):
+    def load_vehicle_configs(self, type, map, scenario):
         """YAML에서 차량 설정들을 로드"""
         try:
             with open("./config/setting.yaml", "r") as f:
@@ -52,11 +52,8 @@ class Execution():
                 type_data = scenario_data[type]
                 ego_pose = type_data.get("pose", [0, 0, 0, 0])  # ego 키 안의 ego 키
                 ego_vehicle_type = type_data.get("vehicle_type", "ford_escort")
-                
                 # 속도 정보 처리
                 x, y, yaw, v = ego_pose[:4]
-
-                
                 vehicle_configs.append({
                     'x': x,
                     'y': y,
@@ -68,16 +65,7 @@ class Execution():
                 # target 차량들 추가
                 targets_data = scenario_data.get("targets", [])  # scenario_data에서 직접 targets 가져오기
                 for i, target_pose in enumerate(targets_data):
-                    if len(target_pose) >= 5:
-                        x, y, yaw, v, model_type = target_pose[:5]
-                    elif len(target_pose) >= 4:
-                        x, y, yaw, v = target_pose[:4]
-                        model_type = "ford_escort"
-                    else:
-                        x, y, yaw = target_pose[:3]
-                        v = 0
-                        model_type = "ford_escort"
-                    
+                    x, y, yaw, v, model_type = target_pose[:5]
                     vehicle_configs.append({
                         'x': x,
                         'y': y,

@@ -5,7 +5,8 @@ import numpy as np
 import math
 import sys
 import rospy
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from nav_msgs.msg import Odometry
 
 # CommonRoad 임포트
 try:
@@ -39,11 +40,25 @@ class LegacyVehicle:
         self.vehicle_type = vehicle_type
         self.L = 2.5  # 기본 wheelbase
         
+        # 속도 관련 변수 추가
+        self.prev_x = x
+        self.prev_y = y
+        self.prev_yaw = yaw
+        self.prev_time = rospy.Time.now()
+        
+        # 각속도 계산을 위한 변수
+        self.angular_velocity = 0.0
+        
         # CommonRoad 호환성을 위한 time_step 속성 추가
         self.time_step = 0
         
     def set(self, x, y, yaw):
         """차량 위치 설정"""
+        # 이전 값 저장 (속도 계산용)
+        self.prev_x = self.x
+        self.prev_y = self.y
+        self.prev_yaw = self.yaw
+        
         self.x, self.y, self.yaw = x, y, yaw
         self.time_step += 1
     
@@ -54,6 +69,9 @@ class LegacyVehicle:
             steer = actuator.get('steer', 0)
             accel = actuator.get('accel', 0)
             brake = actuator.get('brake', 0)
+            
+            # 이전 위치 저장
+            prev_x, prev_y, prev_yaw = self.x, self.y, self.yaw
             
             # 위치 업데이트
             self.x += self.v * math.cos(self.yaw) * dt
@@ -67,7 +85,18 @@ class LegacyVehicle:
             elif accel == 0 and brake > 0:
                 self.v = max(0, self.v - brake * dt)
             
-            self.v = max(0, min(self.v, 30))  # 속도 제한
+            self.v = max(0, min(self.v, 30/3.6))  # 속도 제한
+            
+            # 각속도 계산
+            yaw_diff = self.yaw - prev_yaw
+            # yaw 차이 정규화 (-π ~ π)
+            if yaw_diff > math.pi:
+                yaw_diff -= 2 * math.pi
+            elif yaw_diff < -math.pi:
+                yaw_diff += 2 * math.pi
+            
+            self.angular_velocity = yaw_diff / dt if dt > 0 else 0.0
+            
             self.time_step += 1
             
             return self.x, self.y, self.yaw, self.v
@@ -111,6 +140,12 @@ class CommonRoadVehicle:
             self.v = v
             self.L = self.vehicle.parameters.a + self.vehicle.parameters.b  # wheelbase
             
+            # 속도 관련 변수 추가
+            self.prev_x = x
+            self.prev_y = y
+            self.prev_yaw = yaw
+            self.angular_velocity = 0.0
+            
             # time_step 속성 추가 (호환성)
             self.time_step = 0
             
@@ -120,6 +155,11 @@ class CommonRoadVehicle:
     
     def set(self, x, y, yaw):
         """차량 위치 설정"""
+        # 이전 값 저장
+        self.prev_x = self.x
+        self.prev_y = self.y
+        self.prev_yaw = self.yaw
+        
         self.x, self.y, self.yaw = x, y, yaw
         
         # current_state가 None이 아닌지 확인
@@ -157,6 +197,9 @@ class CommonRoadVehicle:
                     steering_angle=0.0
                 )
                 self.time_step = 0
+            
+            # 이전 상태 저장
+            prev_yaw = self.yaw
             
             # 입력 안전 범위 설정
             params = self.vehicle.parameters
@@ -209,6 +252,16 @@ class CommonRoadVehicle:
             self.v = float(max(0, next_state.velocity))
             self.time_step = next_state.time_step
             
+            # 각속도 계산
+            yaw_diff = self.yaw - prev_yaw
+            # yaw 차이 정규화 (-π ~ π)
+            if yaw_diff > math.pi:
+                yaw_diff -= 2 * math.pi
+            elif yaw_diff < -math.pi:
+                yaw_diff += 2 * math.pi
+            
+            self.angular_velocity = yaw_diff / dt if dt > 0 else 0.0
+            
             return self.x, self.y, self.yaw, self.v
             
         except Exception as e:
@@ -222,6 +275,9 @@ class CommonRoadVehicle:
             accel = actuator.get('accel', 0)
             brake = actuator.get('brake', 0)
             
+            # 이전 상태 저장
+            prev_yaw = self.yaw
+            
             # 간단한 kinematic 모델
             self.x += self.v * math.cos(self.yaw) * dt
             self.y += self.v * math.sin(self.yaw) * dt
@@ -234,7 +290,18 @@ class CommonRoadVehicle:
             elif accel == 0 and brake > 0:
                 self.v = max(0, self.v - brake * dt)
             
-            self.v = max(0, min(self.v, 30))
+            self.v = max(0, min(self.v, 30/3.6))
+            
+            # 각속도 계산
+            yaw_diff = self.yaw - prev_yaw
+            # yaw 차이 정규화 (-π ~ π)
+            if yaw_diff > math.pi:
+                yaw_diff -= 2 * math.pi
+            elif yaw_diff < -math.pi:
+                yaw_diff += 2 * math.pi
+            
+            self.angular_velocity = yaw_diff / dt if dt > 0 else 0.0
+            
             self.time_step += 1
             
             # ★★ 핵심: current_state 업데이트 ★★
@@ -315,7 +382,8 @@ class Simulator:
     
     def set_protocol(self, type):
         rospy.Subscriber('/initialpose', PoseWithCovarianceStamped, self.init_pose_cb)
-        self.vehicle_pub = rospy.Publisher(f'/{type}/pose', PoseStamped, queue_size=1)
+        # PoseStamped 대신 Odometry로 변경
+        self.vehicle_pub = rospy.Publisher(f'/{type}/odom', Odometry, queue_size=1)
 
     def init_pose_cb(self, msg):
         x = msg.pose.pose.position.x
@@ -372,30 +440,58 @@ class Simulator:
             try:
                 # 차량 업데이트
                 self.car['x'], self.car['y'], yaw, self.car['v'] = self.vehicle.next_state(dt, self.actuator)
-                msg = self.make_posestamped_msg(self.vehicle)
+                msg = self.make_odometry_msg(self.vehicle)
                 self.vehicle_pub.publish(msg)
             except Exception as e:
                 print(f"❌ 차량 execute 중 오류: {e}")
         else:
             print("⚠️ 차량이 None이어서 execute를 건너뜁니다.")
 
-    def make_posestamped_msg(self, vehicle):
-        msg = PoseStamped()
+    def make_odometry_msg(self, vehicle):
+        """Odometry 메시지 생성"""
+        msg = Odometry()
+        
+        # 헤더 설정
         msg.header.stamp = rospy.Time.now()
-        msg.header.frame_id = "map"  # RViz fixed_frame과 일치시켜야 보임
-
-        # 위치 설정
-        msg.pose.position.x = vehicle.x
-        msg.pose.position.y = vehicle.y
-        msg.pose.position.z = 0.0
-
-        # yaw → quaternion 변환
-        quat = tf.transformations.quaternion_from_euler(0, 0, vehicle.yaw)  # yaw in radians
-        msg.pose.orientation.x = quat[0]
-        msg.pose.orientation.y = quat[1]
-        msg.pose.orientation.z = quat[2]
-        msg.pose.orientation.w = quat[3]
-
+        msg.header.frame_id = "map"  # 고정 프레임
+        msg.child_frame_id = f"{self.type}_base_link"  # 차량 프레임
+        
+        # 위치 설정 (pose)
+        msg.pose.pose.position.x = vehicle.x
+        msg.pose.pose.position.y = vehicle.y
+        msg.pose.pose.position.z = 0.0
+        
+        # yaw → quaternion 변환 (pose)
+        quat = tf.transformations.quaternion_from_euler(0, 0, vehicle.yaw)
+        msg.pose.pose.orientation.x = quat[0]
+        msg.pose.pose.orientation.y = quat[1]
+        msg.pose.pose.orientation.z = quat[2]
+        msg.pose.pose.orientation.w = quat[3]
+        
+        # 속도 설정 (twist)
+        # 차량 로컬 좌표계에서의 속도 (전진방향)
+        msg.twist.twist.linear.x = vehicle.v  # 전진 속도
+        msg.twist.twist.linear.y = 0.0        # 측면 속도 (일반적으로 0)
+        msg.twist.twist.linear.z = 0.0        # 수직 속도
+        
+        # 각속도 설정
+        msg.twist.twist.angular.x = 0.0
+        msg.twist.twist.angular.y = 0.0
+        msg.twist.twist.angular.z = getattr(vehicle, 'angular_velocity', 0.0)  # yaw 회전 속도
+        
+        # 공분산 행렬 (선택사항 - 불확실성 정보)
+        # 36개 원소의 6x6 행렬 (x, y, z, roll, pitch, yaw)
+        msg.pose.covariance = [0.0] * 36
+        msg.twist.covariance = [0.0] * 36
+        
+        # 대각선 요소에 작은 값 설정 (불확실성 표현)
+        msg.pose.covariance[0] = 0.1   # x 위치 불확실성
+        msg.pose.covariance[7] = 0.1   # y 위치 불확실성
+        msg.pose.covariance[35] = 0.1  # yaw 불확실성
+        
+        msg.twist.covariance[0] = 0.1   # x 속도 불확실성
+        msg.twist.covariance[35] = 0.1  # yaw 속도 불확실성
+        
         return msg
 
     def cleanup(self):
